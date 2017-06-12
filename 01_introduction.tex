@@ -1,0 +1,30 @@
+\section{Introduction}
+
+% With the recent rise in awareness of online account safety, 
+Users are frequently beseeched to come up with unique, strong passwords for every on-line account, but remembering more than a few high-entropy passwords is well beyond the capabilities of normal humans. Das reported that 43--51\% of Internet users reuse the same password across multiple sites~\cite{das2014tangled}. According to a recent survey of security experts, using a password manager was among the most widely-accepted recommendations for improving security~\cite{ion2015no}.
+
+Current password managers, however, do not provide adequate protection for paranoid users. Vulnerabilities are frequently discovered in both the client and server components, as revealed in several recent reports of compromises to major commercial password managers~\cite{khandelwal2016,goodin2015,titcomb2015,hackernoon2017}. 
+Password managers which store user credentials in cloud databases have been susceptible to theft and successful dictionary attacks on stolen encrypted data, according to recent news reports on LastPass~\cite{vinton2015} and KeePass~\cite{goodin2015}. 
+Password manager critics often cite database theft as a compelling reason not to use password managers: ``when password managers fail, they offer a one-stop destination for hackers to obtain all of a target's passwords''~\cite{goodin2015}. 
+
+\shortsection{Contributions} 
+We present the comprehensive design and evaluation of a password manager, \SecPass,\footnote{A ``\SecPass'' is a dark, magical object in the \emph{Harry Potter} book series in which a witch or wizard may hide a fragment of their soul. The antagonist of the series, Voldemort, uses multiple horcruxes to distribute the trust of his soul into multiple objects. Voldemort cannot die as long as at least one of his horcruxes is alive.}, that provides a level of security and privacy well beyond what is achieved by current systems. \SecPass\ is designed to minimize exposure of secrets to a small, auditable component. Although our design is intended for direct integration into a browser (see Section~\ref{sec:discussion}), we have demonstrated and evaluated its effectiveness by implementing a prototype as an open source Firefox add-on (Section~\ref{sec:performance}).
+
+Our server side design (Section~\ref{sec:password_stores}) distributes trust by using secret sharing to store passwords across multiple hosts, and makes novel use of cuckoo hashing to provide user and domain privacy without enabling off-line attacks on password stores.  Our client design isolates the component that has access to passwords from the rest of the password manager. \SecPass\ never exposes the credentials to the DOM, minimizing exposure of user credentials by replacing autofilled dummy credentials with real credentials in outgoing network traffic (Section~\ref{sec:client}). Ideas similar to the password swapping in intercepted outgoing network traffic we use have been proposed before~\cite{Stock2014}, but not adopted by password managers due to usability and compatibility concerns.  To evaluate the deployability of our design, we conducted a large-scale study of Alexa's top million websites. As reported in Section~\ref{compatibility_testing}, we find that \SecPass\ appears to be compatible with 98\% of the websites where a login form was found.    
+
+Security researchers have long advocated for minimizing trusted computing bases~\cite{rushby1984trusted,dod86,mccune2008flicker} and using privilege separation~\cite{provos2003preventing, bittau2008wedge}, and 
+secret-sharing is a well established technique~\cite{shamir1979share}. The main contribution of this work is combining established techniques and our privacy-preserving credential storing scheme in a holistic way to solve an important security problem, and performing a comprehensive evaluation of both the security and compatibility of that design.
+
+%None of the individual ideas or techniques in this paper are new---
+
+%We seek to both improve the security of the password managers by developing and evaluating a systematic solution to client and server-side threats, and to learn from a case study in security design in a challenging context. 
+
+%, and that a staggering number of websites do not use security measures such as SSL/TLS or POST requests to send user's login credentials (Section \ref{scan_results}). 
+
+%Concluding the paper, we suggest improvements that can be done in the future on the part of both our team and Mozilla Firefox to make password managers more secure~\ref{future_work}.
+
+%\dnote{how much are we going to include privacy?  I would like to protect domains used from the servers, and think there are good ways to do this.}
+
+%These vulnerabilities exist because the current password manager design allows for a large attack surface by either placing trust on code that cannot be trusted (Section~\ref{native_password_manager_vulnerabilities}), exposing the credentials to many, potentially malicious parties (Section~\ref{native_password_manager_vulnerabilities}), or "placing all the eggs(the password) in one basket", the password storage database (Section~\ref{password_storage_vulnerability}). 
+
+%Our goal is to design a password manager that solves the problems listed above as well as ensures privacy by \textit{minimizing} the number of parties or amount of code with potential access to the credentials and by splitting the password into shares so that the compromise of one database the not leak any passwords. We discuss the protocol in Section~\ref{horcrux} and analyze its security of the design in~\ref{design_security_analysis}.

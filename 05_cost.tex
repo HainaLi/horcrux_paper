@@ -1,0 +1,58 @@
+\section{Performance}\label{sec:performance}
+
+%\dnote{not really - do we have any numbers for how long it actually takes in the client? I just want to be able to report something like:
+%- did an experiment timing how long it took to be ready to submit password for a test site (could be a few, but one is enough)
+%- visit URL with password form
+%- [start timer]
+%- horcurx stuff happens - I think the end is when the password is reconstructed and it is listening for submit click
+%- [stop timer]
+%All of the results I can see are just measuring performance of AWS. (I think this may be what is in the results at the end, but not in the setup? Would like to present as two experiments:
+%1. just show latency cost of having keystores in different places (we can't do better than this, without giving up jurisdictional diversity for keystores)
+%2. show actual impact on user experience - would be good to have at least 2 scenarios covered with this: 3 nearby keystores vs. the 4 far away ones you have.}
+
+In this section, we evaluate the performance of Horcrux, focusing on the latency that a user may experience with Horcrux' multi-keystore and secret sharing design. 
+
+\shortsection{Experiment Setup} We conduct both our microbenchmarks (timings for DynamoDB requests) and actual client latency on an EC2 c4.xlarge node in the Northern Virginia region to simulate user experience. The c4.xlarge nodes are equipped with 4 vCPUs, 7.5 GB of memory~\cite{EC2Bandwidth, EC2Pricing}. For the microbenchmark tests in Table~\ref{fig:performance_latency}, we send individual read and write requests to keystores located in Northern Virginia, Oregon, Ireland, and Singapore. This models a user paranoid enough to want four keystores spread across multiple jurisdictions to resist state-level attacks. In reality, a paranoid user would also want to use different service providers to host the keystores, but for simplicity of our experiments we use AWS for all of them.  Since the main issue is latency to the keystores, it should not have a significant impact on the results if the keystores were hosted by different providers, so long as they provide a similar batch request API as the one we use. Both the store and write experiments are taken sending an individual item to the keystores. For the amount of data that we send, a batch request of up to 25 items (the maximum allowed by DynamoDB) does not take noticably longer than an individual item request. 
+
+For the user experience tests (Table~\ref{fig:performance_user_experience}), we report the latency a user would experience when trying to retrieve credentials and enroll a new account. For credentials retrieval, the timer starts when a form is detected and ends when the password is reconstructed and Horcrux is listening for the submit click. This doesn't include the time required to detect the form, but that time mostly depends on the page load time which depends on the individual host. If the credentials are ready by the time the user clicks submit, then Horcrux will have little impact on end users. If not, the submit request would be delayed until the credentials are ready, and the delay may be noticable and annoying to users.
+
+For enrolling an account, the timer starts when the user indicates that she wants to store account information and ends when the server responds with ``write successful''. This corresponds to the point when the credentials would be submitted to the account's host server. Cuckoo hashing inserts can sometimes take multiple read and write round trips to the keystores to find a placement. Here, we assume that each store succeeds on the first try. As discussed in Section~\ref{sec:parameter_selection}, the system parameters are set so it should be very rare for multiple attempts to be needed.
+
+\shortsection{Results}
+Table~\ref{fig:performance_latency} presents the results from our microbenchmark latency tests. The duration for each read and write requests depends largely on the distance they are from the client.  Since the password cannot be reconstructed until all shares are received (using a paranoid configuration where the secret-sharing threshold is set to the number of shares), the latency experienced by the user will depend on the latency to the furthest keystore.
+
+Table~\ref{fig:performance_user_experience} shows the average time in seconds that it takes for Horcrux to retrieve credential for a user with keystores on US coasts and one with globally-distributed keystores in the locations in Table~\ref{fig:performance_latency}.  In addition to the retrieval layency, there is significant overhead caused by the Firefox extension and cryptographic computations. Enrolling account information takes almost twice as long as fetching an account. This makes sense because in cuckoo hashing, storing into the table requires two roundtrips to the server. A paranoid user who stores shares of his credentials around the world would have to wait approximately 4.5 seconds after the page loads be able to login. To register a new account with Horcrux, the user needs to wait 7 or more seconds, depending on how many spots need to be evicted. 
+
+We have not done any user testing yet to know how acceptable these results are (that is, how often does a user click submit to login within the credentials reconstruction time, and how noticeable and annoying is the additional delay when the client has to wait for credentials to be ready). Although we suspect these times are long enough to be noticeable for most users, we note that with the right UI display paranoid users may be willing to wait a second or two to perform a login, and there are many opportunities to improve performance to approach the keystore latencies in Table~\ref{fig:performance_latency}, especially for a deployment that is integrated into a browser rather than running as an add-on as our prototype.
+
+%In this case, the user may experience a noticeable delay depending on how soon he wishes to login after saving his account information. On most websites, the user is already logged in after signing up for an account.  %In terms of cost, storing up to 25 GB and reading and writing up to 2.5 million requests per month is free on Amazon DynamoDB~\cite{DynamodbPricing}. 
+
+
+\begin{table}[tb]
+\centering
+
+\begin{tabular}{@{}lllll@{}}
+\toprule
+    & \multicolumn{1}{c}{Virginia} & \multicolumn{1}{c}{Oregon} & \multicolumn{1}{c}{Ireland}   & \multicolumn{1}{c}{Singapore} \\ \midrule
+Write (ms)       & 64.3 (5.03) & 409 (21.3) & 361 (25.1) & 973 (45.2)    \\
+Read (ms) & 65.0 (5.16)   &  309 (23.7) & 356 (20.2) & 927 (37.0)  \\ 
+\bottomrule
+\end{tabular}
+\caption{Time in milliseconds for a write or read request from a node in US East (Northern Virginia). {\rm Results are averages over 10 requests, standard deviations in parentheses.}}
+\label{fig:performance_latency}
+\end{table}
+
+\begin{table}[tb]
+\centering
+
+\begin{tabular}{@{}lll@{}}
+\toprule
+    & \multicolumn{1}{c}{US (3)} & \multicolumn{1}{c}{World (4)} \\ \midrule
+Retrieve Credentials (s) & 3.79 (0.043)   & 4.49 (0.11)      \\
+Enroll Account (s) & 5.74 (0.04) &  7.01 (0.12)  \\ 
+\bottomrule
+\end{tabular}
+\caption{Time in seconds that an user would experience. {\rm The US column is for a user with three keystores, 2 in Northern Virginia and 1 in Oregon, The World column is for the 4 keystores listed in Table~\ref{fig:performance_latency}). {\rm Results are averages over 10 requests, standard deviations in parentheses.}}}
+
+\label{fig:performance_user_experience}
+\end{table}

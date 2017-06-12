@@ -1,0 +1,170 @@
+\section{Design} \label{horcrux}
+
+Our prototype password manager, \SecPass, is implemented as an open-source Firefox add-on~\cite{firefox_addon}.  (As discussed in Section~\ref{sec:client_side_security_analysis}, this is a temporary approach to support our experimentation, and it is not possible to provide sufficient security with the current extension mechanisms.)
+An anonymized version of the repository is available at {\url{https://github.com/HorcruxPasswordManager/horcrux}} %\dnote{don't forget to update this repository}. \hnote{will do after we make the final edits to the design section, which might necessitate more code change}
+
+
+\subsection{Requirements}
+
+The driving motivation for our design is to provide strong security against both client and server vulnerabilities, while providing usability that is similar to current password managers.  In particular, our design aims to:
+\begin{itemize}
+\item Minimize exposure of user credentials in both time and the amount of code they are visible to.
+\item Limit the size of the trusted component on the server to a small, auditable core.
+\item Provide resistance against server compromises by ensuring that even a full compromise of a single password store does not enable at attacker to conduct offline attacks on the user's master password.
+\item Provide functionality and usability similar to current password managers, including supporting single click logins for sites with stored credentials. 
+\end{itemize}
+Next, we describe how the password stores are implemented. Section~\ref{sec:client} describes the client.
+
+\subsection{Password Stores}
+\label{sec:password_stores}
+
+%\dnote{I can't find anywhere that explains that the credentials are secret shared among multiple servers?  We need to start by explaining that before getting into the details} \hnote{This part is discussed in section 3.4 Keystore Design, though I agree that it should be mentioned earlier}
+
+For server-side storage of domain credentials, our goal is to ensure that an attacker who obtains a full copy of a single server's store cannot execute a successful attack to learn the user's credentials, or even the domains where the user has stored passwords. Thus, we need to store credentials at the server in a way that an off-line guessing attack is not possible. There are a small set of domains that a user is likely to have credentials for, and an attacker can probably guess domains like \url{facebook.com} and \url{gmail.com} that will be used by most users. Hence, it is essential that the passwords are stored in a way that does not enable an attacker with access to the store to determine if a guessed master password is correct.
+
+Designing loss-resistant password vaults with such goals in mind has been studied notably by Bojinov et al.~\cite{bojinov2010kamouflage}, who fabricated decoy password sets and by Juels and Ristenpart~\cite{juels2014honey}, who introduced the concept of honey encryption to yield plausible-looking but bogus plaintexts for every guess of the encryption key. These designs, however, have been constructed with specific data patterns (i.e. passwords or RSA keys) in mind, and are susceptible to attacks exploiting the differences in the generated distribution of passwords, which is a problem with all static Natural Language Encoders (NLE)~\cite{Golla2016}.  
+
+In our case, a better solution is to take advantage of secret sharing since this means all of the actual entries are indistinguishable from randomness. All we need to hide is the locations of actual entries.  Our solution is to adopt \textit{cuckoo hashing}~\cite{Pagh2001}. Although cuckoo hashing was not originally designed to support privacy, it can be adapted to meet our goals and provides a solution that is cost-effective for both storage and bandwidth. 
+
+In the original cuckoo hashing, a given data point, $x_i$, gets two possible positions, $h_1(x_i)$ in $T_1$ and $h_2(x_i)$ in $T_2$. The hash functions, $h_1$ and $h_2$, are assumed to behave like independent and random oracles for the possible keys in the table. During an insert operation, one empty position is chosen at random to store $x_i$. If both positions are occupied, it follows the cuckoo bird's approach of replacing the current resident with the new resident and repeating and bouncing between the two tables until an empty position is found or when the maximum number of iterations is reached. Pagh and Rodler set this maximum number at $C$ log $t$, where $C$ is a constant and $t$ is the number of data points. At this point, the entire table is rehashed by choosing a different $h_1$ and $h_2$. Multiple rehashing attempts may be necessary before all the data points find a spot. Successful cuckoo hashing achieves worst case constant lookup and deletion time and amortized constant time for insertions.
+
+In our server design, we use a variant of cuckoo hashing that puts all data in a single table of size $p$, instead of using multiple independent tables.
+We use $n$ independent hash functions capable of mapping $x_i$ uniformly and randomly into any of the $p$ locations in the table. (Discussion on how parameters are selected is deferred to the end of this subsection.)
+%\dnote{forward pointer to later discussion of how the parameters are selected?}
+For each entry, with cuckoo hashing the table can store at any one of (up to) $n$ possible locations: %\dnote{what are we using $H(e)$ and not just $e$ here? Is $e$ actually the user's master password, so that's what we need to use $H(mp)$?} \hnote{$e=\keyword{PBKDF2}(master\_password)$, and the H(d) domain needs to be hashed here because we're not actually storing the domain in the database}
+
+\begin{equation}
+\begin{aligned}
+    h_{1}(d, e) &= H(\text{str}(1) \;||\; e \;||\; H(d)) \mod p \\ 
+    &\mathrel{\makebox[\widthof{=}]{\vdots}}  \\
+    h_{n}(d, e) &= H(\text{str}(n) \;||\; e \;||\; H(d)) \mod p   \\
+\end{aligned}
+\label{eq:domain_hash}
+\end{equation}
+
+\noindent where $d$ is the domain, $e=\keyword{PBKDF2}(master\_password)$ is the encryption key, $p$ is the table size, and $H$ is a cryptographic hash function (our implementation uses SHA-256). 
+
+\shortsection{Account Entries}  For each account, we store a value in JSON format containing shares of the id tag, username, username length, password, and password length. The data stored in the keystores are not the plaintext credentials, but a secret share for each of the $s$ keystores, so no information is disclosed in these values. These are padded to a fixed length so no information is disclosed. The username and password fields are padded up to a maximum length (our prototype uses a default maximum of 64 characters), and the length parameters indicate the real length of the credentials. The id tag is just the hash of the domain, $id\_tag = H(d)$, with SHA-256 this is a 256-bit output. An id tag indicating an empty table key location is 256 bits of zeros. 
+
+\shortsection{Initial Table Setup}\label{sec:initialtable}
+The first time the keystores are used, we prepopulate the all the tables with $p$ table key-value pairs that are meant to mask the rows holding real accounts after Horcrux is used. The pre-secret shared id tag is 256 bits of zeros, and the remaining four values are randomly generated using NodeJS's \textit{secrets} library. For the username, username length, password, and password length, we choose a fixed hexadecimal string of 64 zeros and rely on secret sharing to produce the different shares stored in $p$ rows of the keystores. Using Amazon AWS DynamoDB API's \keyword{batchWriteItem} method, we could store up to 25 key-value pairs at a time. All users will start with a table that appears to be full of account entries, and there is no way to distinguish real from empty entries from a single keystore.  
+
+\shortsection{Item Lookup}
+To lookup a domain's account information, we simply calculate the table keys associated with the domain using Equation~\ref{eq:domain_hash} and obtain $n$ table keys. Next, we query each of the $s$ keystores and obtain $n$ values, $v_{s,n}$, from each keystore. After combining the shares, we acquire $n$ values:
+
+\begin{align*}
+    v_{1} &= \text{combineShares}(dec(v_{1, 1}, e), ..., dec(v_{s, 1}, e)) \\
+&\mathrel{\makebox[\widthof{=}]{\vdots}}  \\
+    v_{n} &= \text{combineShares}(dec(v_{1, n}, e), ..., dec(v_{s, n}, e))   \\
+\end{align*}
+
+%\dnote{how to find the matching entry?}
+We then compare each of the combined id tags with the hash of the domain, picking the value containing the correct id tag.  
+
+\shortsection{Item Insertion}
+In our variant of cuckoo hashing, we have $n$ possible places for the credentials to a domain, $d$. We use cuckoo hashing's collision resolution technique, as described in Section~\ref{sec:password_stores}, to find a "nest" for every credential by calculating the locations for the booted values from its id tag. Inserting new item is the main concern for user-perceived latency, which is discussed in Section~\ref{sec:performance}.  Deleting or updating an account, is simply a matter or writing shares of the new value (all zeros for deletion) into the stored location.
+
+\shortsection{Parameters} \label{sec:parameter_selection}
+%\dnote{todo: move this to later parameters discussion}
+We select the default parameters for our cuckoo hash table for a reasonable balance of storage costs and minimal probability of collisions. Each location in the table can only hold one item. With $n = 2$, the effective load factor is less than 0.5. At higher load factors, cuckoo hashing performance drastically decreases and frequently needs rehashing.
+With $n \ge 3$, the load factor increases substantially.  The value $c^*$ is used to represent the load factor for which the probability that all $p \cdot c^*$ items can be placed in the table. Fountoulakis and Panagiotou proved that for $n = 5$, $c^*_5 = 0.992$~\cite{Fountoulakis2009}, meaning that nearly the entire table can be filled before rehashing is needed. For performance reasons, we are also concerned with the expected number of collision resolutions needed. Fountoulakis et al.\ analyzed the number of insertions needed for a cuckoo hash table, and proved a polylogarithmic bound on the number needed holds for all but negligible probability~\cite{Fountaoulakis2010}.  
+For our implementation, the key stores support batch read and right requests (up to 25 elements at a time for AWS' DynamoDB API), so the network cost of increasing the number of hash functions is low, and the local computation cost is also fairly low. Hence, we select $n = 5$. 
+
+A 2007 study~\cite{Florencio2007} on the number of accounts owned by the typical user found that the average user as 6.5 passwords, which are shared between 3.9 different sites, and that each user has about 25 accounts. We reason that in 2017, the typical user has more accounts. As a result, we design \SecPass\ to support a default maximum capacity of 10,000 accounts, and use $p = 10079$ (the first prime number above 10,000), and $n = 5$. This puts our expected maximum random-walk insertion time at around 8 reassignments for a fully-loaded table. %log(10079)/log(3.15)... I'm not really sure I made the correct conclusion. Can you actually come up with a number for bounds? 
+Frieze et al.~\cite{Frieze2011} discussed that while breadth-first search gives constant \textit{expected} time, it cannot guarantee sub-polynomial runtime for the insertion of each element. The amortized time complexities are unsuitable for applications that rely on cuckoo hashing to guarantee fast individual insertions. Therefore, we stick to the original cuckoo hashing random-walk insertion algorithm.  
+
+%\dnote{end}
+
+\subsection{Client}\label{sec:client}
+
+The overriding designs goal of the client is to minimize exposure of user credentials to a small, auditable component. Hence, the client is divided into two components: a trusted \emph{core} that needs access to the master password and sensitive credentials, and an untrusted \emph{UI component} that manages interactions with the webpage but cannot access any Firefox API. The core and UI components are completely isolated from each other and can only communicate through the message-passing. For all sensitive computation, The \Core\ creates a NodeJS subprocess which uses its \keyword{crypto} library for all cryptographic algorithms\cite{cryptoAPI}, as well as AWS and Azure APIs for making requests to keystores. 
+
+Next, we describe how to setup the client, and what happens when it is used in the brower to process a login request. Figure~\ref{horcrux_diagram} (in the Appendix) illustrates the interactions between the user, browser add-on, and keystores. 
+
+\shortsection{Setup} \label{protocol_setup}
+To use \SecPass\, users need to set up servers that store shares of the users passwords. Our  prototype add-on prompts users to create accounts on AWS or Azure and create access keys with 
+permissions to use their noSQL keystores (AWS DynamoDB or Azure Table Storage) in a specific 
+datacenter region. More paranoid users will configure keystores themselves using trusted  services and spread across jurisdictions. A user may also use their own servers as a keystore, any server that supports the appropriate keystore APIs can be used. Each keystore in initialized as a cuckoo hash table full with shares of empty values as described in Section~\ref{sec:initialtable}.
+
+%it with the following schema:  ``tableKey'' serves as a table entry's primary key. As \SecPass\ uses NoSQL  keystores, the values (i.e. the username, password, username length, password length, and the identifying tag shares) need not be included in the table  schema. Each entry in a keystore's table is a string in JSON format consisting of those five values. We discuss the advantages and disadvantages of ensuring domain and username privacy using this design in Section \ref{design_security_analysis}.
+
+%The user must also download all keystore credentials they intend to use; each keystore credential corresponds to  one keystore, which holds one share of the user's password record. Additional devices may be  setup, though the user must securely transfer \keyword{config.json}, a file encrypted with the  user's keystore credentials, in order to do so. We recommended setting up at least three  keystores to take full advantage of the distributed trust model our design affords. At least two keystores are required to use \SecPass.
+
+The user is prompted to provide credentials obtained from AWS or Azure (their \emph{accessKeyID} and \emph{secretAccessKey}) for each keystore, and to create a master password. The core component derives a keystore authentication key from the master password (\emph{MP}) using a Password Based Key Derivation Function (\keyword{PBKDF2}) over 100,000 iterations, following similar practices used by 1Password \cite{1PasswordWhitePaper}.
+The keystore server credentials provided are encrypted using \emph{AuthKey} using AES-256 with CTR mode in \keyword{base64} encoding, and stored in a \keyword{config.json} file on the client's device.\footnote{For AWS keystores, the region in which each set of credentials is configured to use is stored unencrypted. Storing region information is necessary in order to use the AWS API, and encrypting the region name would present an opportunity for an adversary to perform an offline dictionary attack on the master password.  We view the risk of leaking the keystore region to an adversary who acquires the encrypted configuration file as much less serious than any risk of enabling an off-line attack on the master password.} This file is not accessible to webpages in the browser due to Firefox's isolation policies~\cite{firefoxAPI}.  Although our design attempts to limit the effectiveness of guessing attacks on the master password, it is still important that users select a strong enough master password to resist at least on-line guessing attacks. Access credentials are randomly generated by AWS or Azure and their \keyword{base64} encoding prevents them from being susceptible to such dictionary attacks. On-line attacks are limited by the cloud servers limits on incorrect login attempts.
+
+ 
+%Any further development of our 
+%prototype should consider using ``Honeywords'' to protect region information from an adversary attempting to learn the master password\cite{juels2013honeywords}. 
+
+
+%The \Core\ stores the encrypted strings in JSON format to \keyword{config.json}: 
+%      \begin{verbatim}
+%{ "Account1": aes256_accessKeyID1,
+%  "Key1": aes256_secretAccessKey1,
+%  "Options1": unenc_keystore_region1,
+%  "Account2": ... ,
+%  ...}
+%\end{verbatim}  
+
+\shortsection{Initialization}  
+When a user opens Firefox and begins the browser session, the \Core\ checks for \keyword{config.json}, a file in the add-on containing the user's encrypted keystore credentials. If the encrypted credentials are not present, the setup steps are performed. Otherwise, the \Core\ prompts the user for their master password. The encrypted credentials are read from \keyword{config.json} and stored as strings in the \Core's private memory. The master password is used to derive the 512-bit \emph{AuthKey} using \keyword{PBKDF2} over 100,000 iterations. The \emph{AuthKey} is then used as the decryption key to an \keyword{AES-256} cipher, and the \Core\ deciphers each encrypted credential.  The \emph{AuthKey} is kept in the \Core\ memory for the duration of the session (it is kept until browser is closed) to avoid needing to repeatedly request the master password.  
+
+Next, the \Core\ verifies the user's keystore credentials by initiating a connection to each keystore. If the request fails, the user is presumed to have given an incorrect master password, and the \Core\ returns to prompting for the master password. There is no enforced limit on password attempts at the client side, as all verification is done online and subject to AWS or Azure policies for making many requests with incorrect credentials. 
+  
+
+%After the master password is used to derive \emph{AuthKey}, it is subject to 
+%JavaScript's mark-and-sweep garbage collection algorithm to await deletion from memory during 
+%the browser session\cite{markSweep}.
+
+% 1password derives the authentication key and the data key from the same master password. They justify this by using different salts for the derivation function. Perhaps we could store randomly generated salts locally and use them to guarantee privacy on keystores, as guessing the salt will not be possible for an adversary.
+
+%\dnote{if the full pwd database is loaded in startup, its easy; if not, we can have a local bloom filter stored that will identify known sites (this would just be stored encrypted with the MP, along with the keystore credentials).}
+\shortsection{Login Form and Account Retrieval}
+When the browser loads a webpage, the \UI\ finds login forms on the page by searching for forms with an input \keyword{type=password} and uses heuristics to exclude registration forms based on the form title and input labels. Once a login form is found, then the \UI\ notifies the \Core\ with the URL of the containing page. The \Core\ proceeds to query to keystores to check for the presence of an account associated with the domain, as previous described in Section~\ref{sec:password_stores}. For the protocol, we assume that each domain only has one account associated with it. See the discussion on supporting multiple usernames per domain in Section~\ref{sec:discussion}.
+
+Although it would be simplest and most secure to wait until the user submits the form to start the process of obtaining and reconstructing the account credentials, we considered this unacceptable for user experience. If we fetch the password shares after the user clicks submit, the user would experience the delay of fetching and reconstructing shares as well as the usual server response latency. Further, due to the indeterministic nature of JavaScript, we cannot guarantee that the \Core\ would receive the "user clicked" signal from the \UI\ before the login traffic leaves the browser.   
+%Hence, the \Core\ retrieves the account credentials as soon as the login form is detected by making requests to each of the user's keystores with the ``tableKeys`` in Equation~\ref{eq:domain_hash}.  
+%The shares are then parsed from JSON and stored into memory in an array. Using Shamir's secret sharing in NodeJS, the shares are combined into the actual encrypted password which is decrypted with $AuthKey$ and then inserted in place of the dummy password in the request (as is the username). 
+
+%\dnote{this is very strange, and seems broken - if you prefix all passwords like this, can't have any user-selected passwords, which may be needed, or even handle sites that don't allow some special characters. I don't get why this wouldn't just be done as part of the enrollment, and the actual password is what is stored} \hnote{good idea, updated}
+    
+\shortsection{Swapping Credentials} \label{sec:swapping_credentials}
+  After obtaining credentials for a login form, the \Core\ sends dummy credentials to the \UI\ to be autofilled in the form, and starts actively listening to network traffic. The \UI\ autofills the fields in with dummy user and password strings by setting the elements' {\tt{value}}. These dummy values are different for each user but the same for every website that the user visits. Hence, the actual credentials are never exposed to the DOM, but a user will receive visual feedback that stored credentials are available for the form. The idea of avoiding exposure of passwords to injected scripts by using dummy credentials to autofill forms and replacing them in network traffic was previously suggested by Stock and Johns~\cite{Stock2014}.
+  
+  The \Core\ waits for the user to click submit, at which point all instances of the dummy username and password in the request traffic are intercepted swapped for the real credentials before TLS encryption. Before inserting the real credentials, the \Core\ checks that the target domain matches the credentials' domain and that the request is secure (the target URL is HTTPS and the dummy username and password are not used as URL parameters in a GET request).  
+  
+  . 
+  
+  %, the add-on does not substitute the real credentials. If the user is adamant on logging in, he would enter his credentials manually, and the traffic would be ignored by \SecPass. This is discussed in greater detail in Section~\ref{design_security_analysis}. %\hnote{edited}
+  
+  \shortsection{Enrolling New Accounts} If the user has not already registered with the domain, \SecPass\ generates a strong password using random bytes from NodeJS' crypto library (users may override password generation to provide a user-generated password manually). 
+  The generated password is prefixed with a fixed set of characters (\keyword{AaBa12\#\$}) which satisfy the majority of web account password creation policies.\footnote{We have not focused on password generation, and appreciate that generating passwords that pass some site's password rules is a challenging (and annoying) problem, and no single password will satisfy all rules. The problem of generating good and permissable passwords is orthogonal to the password management issues that are our primary research focus.} The credentials are then stored using cuckoo hashing's insert algorithm, as described in Section~\ref{sec:password_stores}.
+  %\dnote{how to store, avoiding collisions}
+
+
+%\footnote{As we discuss in Section~\ref{deprecated}, this API is being deprecated.} 
+
+%\subsection{Latency Measurements} \label{latency}
+
+%\begin{table}[]
+%\centering
+
+%\begin{tabular}{| l | llll | }
+%\hline
+%            & 1 of 1 & 2 of 2 & 2 of 2 * & 3 of 5 \\
+%                               \hline
+%retrieval median    &        &        &          &        \\
+%retrieval 95th &        &        &          &        \\
+%\hline
+     
+%\end{tabular}
+%\label{latency_test}
+%\caption{My caption}
+%\end{table}
+
+%time how long database accesses and encryptions take
+%Logging into any website with \SecPass\ requires making requests to the threshold number of servers holding shares of the password -- no offline caching is implemented. The average latency of making requests is detailed in (include Table below), with keystores across various datacenters in the United States and Europe. Latency was measured using the {\tt{time}} command in Linux while completing requests to AWS using NodeJS. 
+
+
+% add latency measurements with nodes in separate regions, and different number of nodes (shares) needed

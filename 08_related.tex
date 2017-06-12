@@ -1,0 +1,33 @@
+\section{Related Work} \label{sec:related}
+
+In this section, we discuss related work on secret sharing and data protection and authentication.  
+
+\shortsection{Secret Sharing and Data Protection} 
+Although splitting secrets using XOR was known to ancient cryptographers, the first efficient threshold secret-sharing schemes were discovered separately by Shamir~\cite{shamir1979share} and Blakeley~\cite{blakley1979safeguarding} in the late 1970s.  Our implementation uses Shamir's scheme. 
+
+Several prior works have used secret-sharing to protect data. Password-protected secret sharing (PPSS)~\cite{bagherzandi2011password} presents a Public Key Infrastructure (PKI) model for distributing the trust of sensitive data to $t+1$ hosts, with the ability to protect user data from being reconstructed by at most $t$ compromised hosts. PPSS mentions the utility of distributing user credentials in a password manager setting, though it does not investigate the application of its protocol in relation to common password manager database schemes, such as those found in Gasti et al.~\cite{gasti2012security}. 
+
+\shortsection{Password Manager Storage}
+Gasti notes the storage weaknesses of numerous password managers such as Chrome's 
+unencrypted local SQLite database, 1Password's credential storage with AES-128 and CBC 
+mode encryption, and KeePass' header-hashing data integrity checks~\cite{gasti2012security}. The paper finds that 
+many popular password managers are poorly suited against IND-CDBA (eavesdropping) or MAL-
+CDBA (data manipulation) schemes. Gasti categorizes the managers as (1) ``those that can 
+be assumed safe on an insecure storage medium'' (2) ``those that can be used
+if the underlying storage mechanism provides integrity and data authenticity'' and (3) ``those that can be used securely only if the underlying storage provides integrity, 
+authenticity and secrecy'' . 
+The paper concludes that many password managers used database storage schemes that were vulnerable to read-only and read-write attacks.
+%, though it does not discuss the concept of PPSS or its relevant security analysis. 
+
+\shortsection{Protecting Passwords from Scripts}
+Stock and Johns considered the problem of injected scripts stealing autofilled credentials from password forms, and proposed a client-side defense similar to the password swapping method used by Horcrux~\cite{Stock2014}. They implemented a prototype Firefox extension to perform password swapping, similar to what is done by our implementation, and conducted an evaluation of the top 4000 websites to determine how many included scripts that accessed password data, and manually inspected some of those scripts to understand whether password swapping was likely to work on those sites. Since their study required manual analysis, it could not scale to a large number of websites. Their implementation used local storage of passwords, and did not consider ways to reduce the size of the trusted client-side component. 
+
+\begin{comment}
+\subsection{Authentication} \label{authentication}
+\dnote{not sure we need this here - isn't it redundant with what was in Section 6?  If so, we should focus this related work section just on designing more secure password manager issues}
+\hnote{ I think we've already talked a lot about other password manager designs scattered throughout the paper: the secure filling (better autofill policies), the swapping technique, the secure password vaults (honey encryption and kamouflage), how 1password stores the passwords, using master passwords. not sure what else about password managers to add}
+Acker et al.~\cite{acker2017} accomplished a similar large-scale scan on the top 100,000 websites to evaluate their login security on whether user-entered passwords could be stolen from a website. To find the login forms on websites, Acker et al. developed a similar web automation tool that navigates web pages and finds login forms through clues given in the HTML element attributes, as well as through using search engines to gather the login URL directly. In their tests, the researchers assumed the role of a network attacker where they injected JavaScript to dynamically steal passwords from input forms and found that 82.4\% of the websites that they tested (51,307) from the top 100,000 websites were vulnerable. Even though our tool, \SecPass\ uses similar techniques to find the login forms, we carry out our compatibility test in a different manner by submitting the form and analyzing the traffic that resulted in our dynamic testing.  
+Zhou and Evans made one of the first efforts to examine the overall security of Facebook Single Sign Ons (SSO) over a large portion of the Internet in their SSOScan~\cite{Zhou2014}. Using a monitoring driver written in Ruby and a scanner written using Firefox's add-on API, SSOScan visited 20,000 websites, looking for and clicking on the Facebook Single Sign On button to reveal the form, logging in with preset Facebook accounts, completing the registration steps if needed, and checking the SSO implementations for security vulnerabilities. Finding vulnerabilities involving misuse of various tokens and leakage of secrets or credentials required SSOScan to dynamically check for them during the logging in process through intercepting, changing, and redirecting requests. In this respect, our experiments are similar, except that we will be automating the sites' own logins. 
+\end{comment}
+
+%Another similar large-scale scanning framework was FPDetective~\cite{FPDetective}, which employed PhantomJS to automate web testing, but we needed Selenium's more realistic user interactions with the web to run our tests. %\hnote{edited} - good

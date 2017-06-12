@@ -1,0 +1,27 @@
+\section{Discussion} \label{sec:discussion}
+
+%\dnote{subsections on 1. Privacy (domains), 2. Setting up new devices, }
+
+%\shortsection{Privacy of Domains}
+%As mentioned in Section~\ref{domain_privacy}, we leave URLs and usernames for a user's online accounts as plaintext within their keystores out of a desire to maintain the integrity of the master password's usage for only encrypting data that is not susceptible to offline dictionary attacks. 
+
+%For this work, we have focused exclusively on protecting the actual credentials and designed our protocol around simplicity and security. 
+
+Our goal in building the \SecPass\ prototype and conducting our experiments was to demonstrate the feasibility and practicality of a more secure password manager. Here, we discuss a few issues that we did not address in our prototype implementation but that would be important to handle before deployment.
+
+\shortsection{Browser Integration} \label{deprecated}
+Our prototype was implemented as a Firefox add-on, but Mozilla is planning on deprecate the Firefox add-on SDK and migrate to WebExtension~\cite{webextension} with the goal of supporting cross-browser compatibility. We built our add-on using the soon-to-be legacy SDK because WebExtension does not currently have support for the majority of low-level APIs~\cite{FirefoxComparisonSDKWebExtension}, some of which we depend on to manipulate HTTPS traffic. WebExtension's \keyword{webRequest} API only allows less powerful capabilities such as canceling and redirecting a request, modifying request and response headers, and supplying authentication credentials in-flight~\cite{firefox_webrequest}. Our add-on needed the capacity to change \keyword{POST} request content. Google Chrome's \keyword{webRequest} API has similar limitations~\cite{chrome_webrequest}. We recognize that this design choice is motivated by security---the browser vendors do not want to give third-party, untrusted browser add-ons too much power in case permissions are not reviewed carefully by the user or the developer~\cite{barth2010protecting}. In this regard, our design is best-suited for incorporating directly into the browser by changing how the default password manager autofills and stores passwords. Integrating Horcrux into a browser would also eliminate possible traffic visibility among multiple add-ons, which was discussed in Section~\ref{sec:client_side_security_analysis}. Providing support for mobile devices would also be important, but we have not yet considered that.
+
+%\dnote{can we say something about what it would involve to work for mobile devices?}
+%\hnote{I did some research, but can't quickly come up with an implementation plan for mobile devices. Mobile browser extensions work quite differently }
+
+
+\shortsection{Supporting Multiple Accounts per Domain}
+The current \SecPass\ design does not support multiple usernames for one domain. The keystore scheme can be easily modified to support multiple usernames by including the username when calculating the table keys and picking a larger hash table size. In this design, however, \SecPass\ needs to know the full username prior to making the request to the keystores. The user would either need to enter the username manually, or \SecPass\ would need to maintain a local copy of domain and usernames, which defeats the goal of domain and username privacy.  An alternative, would be to assume for most domains the user only has one username, but to store something special in the value entry for multi-user domains so the first request would return a list of the usernames instead of the password. Then, those names could be presented to the user to select from in the manager's interface. We believe multiple usernames could be handled without any security compromises.
+
+\shortsection{Setting up New Devices}
+As discussed in Section \ref{protocol_setup}, there are two ways to set up new devices to work with \SecPass\: securely transfer \keyword{config.json}, the file containing encrypted keystore credentials, to the new device or re-enter the database access stores into Horcrux. Neither options provide the convenience supported by commercial password managers because the user is not trusting a password manager to store his access keys. 
+%\dnote{not sure this is really simple - for most PM's just necessary to setup user and mp to setup a new device. Main issue for us is configuring the password stores - can either do this manually, as initially, or by transferring config.json file.  I think we should acknowledge that neither option is an acceptable user experience today, but a better solution could be worked out}
+Upon entering their master password on the new device, the \Core\ will use \keyword{PBKDF2} to derive the key needed to successfully decrypt the keystore credentials.
+
+
