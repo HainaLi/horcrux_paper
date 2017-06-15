@@ -1,7 +1,7 @@
-\documentclass[sigconf, anonymous]{acmart}
+\documentclass[sigconf]{acmart}
 
 \fancyhf{} % Remove fancy page headers                                          
-\fancyhead[C]{Anonymous submission \#79 to ACSAC 2017}                                                           
+%\fancyhead[C]{Anonymous submission \#79 to ACSAC 2017}                                                           
 \fancyfoot[C]{\thepage}
 
 
@@ -37,28 +37,10 @@
 %\subtitle{Extended Abstract}
 %\subtitlenote{The full version of the author's guide is available as
 
-\author{Hannah Li}
-%\authornote{Dr.~Trovato insisted his name be first.}
-%\orcid{1234-5678-9012}
-\affiliation{%
-  \institution{University of Virginia}
-%  \streetaddress{P.O. Box 1212}
-%  \city{Dublin} 
-%  \state{Ohio} 
-%  \postcode{43017-6221}
-}
-\email{hannahli@virginia.edu}
-
-\author{David Evans}
-%\authornote{The secretary disavows any knowledge of this author's actions.}
-\affiliation{%
-  \institution{University of Virginia}
-  %\streetaddress{P.O. Box 1212}
-  %\city{Dublin} 
-  %\state{Ohio} 
-  %\postcode{43017-6221}
-}
-\email{evans@virginia.edu}
+\author{Hannah Li, David Evans}
+\affiliation{\institution{University of Virginia}}
+%\city{\href{https://oblivc.org/dca}{\sf https://oblivc.org/dca}}}
+\email{[hannahli, evans]@virginia.edu}
 
 \begin{abstract}
 %\hnote{shorten by 2 pages}
@@ -93,8 +75,6 @@ Vulnerabilities in password managers are unremitting because current designs pro
 %We thank the anonymous reviewers for their helpful feedback. We also thank Yuchen Zhou for his valuable insights and suggestions on automating \SecPass. (Add organizations who provided financial support.)
 
 %\balancecolumns 
-
-\clearpage
 
 \appendix
 
@@ -149,6 +129,12 @@ Category &Percentage\\
 \caption{Types of logins found by the scan (percentages are out of the number of completed form submissions).}
 \label{scan_results_table}
 \end{figure}
+
+
+\begin{acks}
+The authors thank Samuel Havron for coming up with the Horcrux name and contributions to the design, implementation, and presentation. This work was partially funded by an award from the National Science Foundation (1422332) and gifts from Amazon, Google, and Microsoft.
+\end{acks}
+
 
 \makeatletter
 \def\url@leostyle{%
